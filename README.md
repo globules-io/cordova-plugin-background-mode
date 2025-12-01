@@ -1,20 +1,11 @@
 
-<p align="left">
-    <b><a href="https://github.com/katzer/cordova-plugin-background-mode/tree/example">SAMPLE APP (katzer)</a> :point_right:</b>
-</p>
-
 Cordova Background Plugin
 
 =========================
 
 Plugin for the [Cordova][cordova] framework to perform infinite background execution.
 
-This project is based on https://github.com/katzer/cordova-plugin-background-mode . Bruno Chikuji have taken on responsibility for hosting it and will be maintaining it and merging PRs from the community. If you have any fixes, features or updates that you would like included, please do raise a PR or issue on the GitHub repository.
-
-ATENTION: This project changes the package name from it's parents. The words are the same but in a different order, which is easy to miss and can cause some confusion
-
-Most mobile operating systems are multitasking capable, but most apps dont need to run while in background and not present for the user. Therefore they pause the app in background mode and resume the app before switching to foreground mode.
-The system keeps all network connections open while in background, but does not deliver the data until the app resumes.
+This project is based on https://github.com/katzer/cordova-plugin-background-mode . 
 
 #### Store Compliance
 Infinite background tasks are not official supported on most mobile operation systems and thus not compliant with public store vendors. A successful submssion isn't garanteed.
@@ -23,11 +14,8 @@ Use the plugin by your own risk!
 
 
 ## Supported Platforms
-- __Android/Amazon FireOS__
-- __Browser__
-- __iOS__
-- __Windows__ _(see #222)_
-
+- Android
+- iOS
 
 ## Installation
 The plugin can be installed via [Cordova-CLI][CLI] and is publicly available on [NPM][npm].
@@ -178,28 +166,6 @@ cordova.plugins.backgroundMode.on('activate', function() {
 __Note:__ Calling the method led to increased resource and power consumption.
 
 
-## Contributing
-
-1. Fork it
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Add some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create new Pull Request
-
-
 ## License
 
 This software is released under the [Apache 2.0 License][apache2_license].
-
-Made with :yum: from Leipzig
-
-? 2017 [appPlant GmbH][appplant] & [meshfields][meshfields]
-
-
-[cordova]: https://cordova.apache.org
-[CLI]: http://cordova.apache.org/docs/en/edge/guide_cli_index.md.html#The%20Command-line%20Interface
-[NPM]: ???
-[changelog]: CHANGELOG.md
-[apache2_license]: http://opensource.org/licenses/Apache-2.0
-[appplant]: http://appplant.de
-[meshfields]: http://meshfields.de
