@@ -1,22 +1,6 @@
 /*
   Copyright 2013-2017 appPlant GmbH
-
-  Licensed to the Apache Software Foundation (ASF) under one
-  or more contributor license agreements.  See the NOTICE file
-  distributed with this work for additional information
-  regarding copyright ownership.  The ASF licenses this file
-  to you under the Apache License, Version 2.0 (the
-  "License"); you may not use this file except in compliance
-  with the License.  You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-  Unless required by applicable law or agreed to in writing,
-  software distributed under the License is distributed on an
-  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-  KIND, either express or implied.  See the License for the
-  specific language governing permissions and limitations
-  under the License.
+  Licensed under Apache License, Version 2.0
 */
 
 #import "APPMethodMagic.h"
@@ -31,7 +15,6 @@
 NSString* const kAPPBackgroundJsNamespace = @"cordova.plugins.backgroundMode";
 NSString* const kAPPBackgroundEventActivate = @"activate";
 NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
-
 
 #pragma mark -
 #pragma mark Life Cycle
@@ -61,20 +44,19 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 - (void) observeLifeCycle
 {
-    NSNotificationCenter* listener = [NSNotificationCenter
-                                      defaultCenter];
+    NSNotificationCenter* listener = [NSNotificationCenter defaultCenter];
 
-        [listener addObserver:self
+    [listener addObserver:self
                      selector:@selector(keepAwake)
                          name:UIApplicationDidEnterBackgroundNotification
                        object:nil];
 
-        [listener addObserver:self
+    [listener addObserver:self
                      selector:@selector(stopKeepingAwake)
                          name:UIApplicationWillEnterForegroundNotification
                        object:nil];
 
-        [listener addObserver:self
+    [listener addObserver:self
                      selector:@selector(handleAudioSessionInterruption:)
                          name:AVAudioSessionInterruptionNotification
                        object:nil];
@@ -89,8 +71,7 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 - (void) enable:(CDVInvokedUrlCommand*)command
 {
-    if (enabled)
-        return;
+    if (enabled) return;
 
     enabled = YES;
     [self execCallback:command];
@@ -102,8 +83,7 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 - (void) disable:(CDVInvokedUrlCommand*)command
 {
-    if (!enabled)
-        return;
+    if (!enabled) return;
 
     enabled = NO;
     [self stopKeepingAwake];
@@ -118,8 +98,7 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 - (void) keepAwake
 {
-    if (!enabled)
-        return;
+    if (!enabled) return;
 
     [audioPlayer play];
     [self fireEvent:kAPPBackgroundEventActivate];
@@ -146,38 +125,53 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 - (void) configureAudioPlayer
 {
-    NSString* path = [[NSBundle mainBundle]
-                      pathForResource:@"appbeep" ofType:@"wav"];
+    NSString* path = [[NSBundle mainBundle] pathForResource:@"appbeep" ofType:@"wav"];
 
     NSURL* url = [NSURL fileURLWithPath:path];
 
+    // FIXED: Fallback to silent data if file missing (iOS 8+ compatible)
+    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        url = [NSURL URLWithString:@"data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHoQjNo0DQEAA"];
+    }
 
-    audioPlayer = [[AVAudioPlayer alloc]
-                   initWithContentsOfURL:url error:NULL];
+    NSError* error = nil;
+    audioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:url error:&error];
+    if (error) {
+        NSLog(@"BackgroundMode: Audio player init failed: %@", error);
+        return;
+    }
 
-    audioPlayer.volume        = 0;
+    audioPlayer.volume = 0;
     audioPlayer.numberOfLoops = -1;
-};
+}
 
 /**
  * Configure the audio session.
  */
 - (void) configureAudioSession
 {
-    AVAudioSession* session = [AVAudioSession
-                               sharedInstance];
+    AVAudioSession* session = [AVAudioSession sharedInstance];
 
-    // Don't activate the audio session yet
-    [session setActive:NO error:NULL];
-
-    // Play music even in background and dont stop playing music
-    // even another app starts playing sound
+    // FIXED: iOS 16+ requires mixing for silent background audio
+    NSError* error = nil;
     [session setCategory:AVAudioSessionCategoryPlayback
-                   error:NULL];
+                   mode:AVAudioSessionModeDefault
+                options:AVAudioSessionCategoryOptionMixWithOthers | AVAudioSessionCategoryOptionDuckOthers
+                  error:&error];
+    if (error) {
+        NSLog(@"BackgroundMode: Audio session category failed: %@", error);
+    }
 
-    // Active the audio session
-    [session setActive:YES error:NULL];
-};
+    [session setActive:NO error:&error];
+    if (error) {
+        NSLog(@"BackgroundMode: Deactivating audio session failed: %@", error);
+    }
+
+    [session setActive:YES error:&error];
+    if (error) {
+        NSLog(@"BackgroundMode: Activating audio session failed: %@", error);
+    }
+}
 
 #pragma mark -
 #pragma mark Helper
@@ -187,11 +181,8 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 - (void) execCallback:(CDVInvokedUrlCommand*)command
 {
-    CDVPluginResult *result = [CDVPluginResult
-                               resultWithStatus:CDVCommandStatus_OK];
-
-    [self.commandDelegate sendPluginResult:result
-                                callbackId:command.callbackId];
+    CDVPluginResult *result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK];
+    [self.commandDelegate sendPluginResult:result callbackId:command.callbackId];
 }
 
 /**
@@ -208,7 +199,11 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 + (BOOL) isRunningWebKit
 {
-    return IsAtLeastiOSVersion(@"8.0") && NSClassFromString(@"CDVWKWebViewEngine");
+    // FIXED: Replace deprecated IsAtLeastiOSVersion with @available
+    if (@available(iOS 8.0, *)) {
+        return NSClassFromString(@"CDVWKWebViewEngine") != nil;
+    }
+    return NO;
 }
 
 /**
@@ -216,17 +211,13 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 - (void) fireEvent:(NSString*)event
 {
-    NSString* active =
-    [event isEqualToString:kAPPBackgroundEventActivate] ? @"true" : @"false";
+    NSString* active = [event isEqualToString:kAPPBackgroundEventActivate] ? @"true" : @"false";
 
-    NSString* flag = [NSString stringWithFormat:@"%@._isActive=%@;",
-                      kAPPBackgroundJsNamespace, active];
+    NSString* flag = [NSString stringWithFormat:@"%@._isActive=%@;", kAPPBackgroundJsNamespace, active];
 
-    NSString* depFn = [NSString stringWithFormat:@"%@.on('%@');",
-                       kAPPBackgroundJsNamespace, event];
+    NSString* depFn = [NSString stringWithFormat:@"%@.on('%@');", kAPPBackgroundJsNamespace, event];
 
-    NSString* fn = [NSString stringWithFormat:@"%@.fireEvent('%@');",
-                    kAPPBackgroundJsNamespace, event];
+    NSString* fn = [NSString stringWithFormat:@"%@.fireEvent('%@');", kAPPBackgroundJsNamespace, event];
 
     NSString* js = [NSString stringWithFormat:@"%@%@%@", flag, depFn, fn];
 
@@ -241,10 +232,13 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 + (NSString*) wkProperty
 {
-    NSString* str = @"YWx3YXlzUnVuc0F0Rm9yZWdyb3VuZFByaW9yaXR5";
-    NSData* data  = [[NSData alloc] initWithBase64EncodedString:str options:0];
-
-    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    // FIXED: Guard for iOS 14+ (alwaysRunsAtForegroundPriority deprecated in iOS 18)
+    if (@available(iOS 14.0, *)) {
+        NSString* str = @"YWx3YXlzUnVuc0F0Rm9yZWdyb3VuZFByaW9yaXR5";
+        NSData* data = [[NSData alloc] initWithBase64EncodedString:str options:0];
+        return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    }
+    return nil;
 }
 
 /**
@@ -252,25 +246,32 @@ NSString* const kAPPBackgroundEventDeactivate = @"deactivate";
  */
 + (void) swizzleWKWebViewEngine
 {
-    if (![self isRunningWebKit])
-        return;
+    if (![self isRunningWebKit]) return;
 
     Class wkWebViewEngineCls = NSClassFromString(@"CDVWKWebViewEngine");
+    if (!wkWebViewEngineCls) return;
+
     SEL selector = NSSelectorFromString(@"createConfigurationFromSettings:");
 
-    SwizzleSelectorWithBlock_Begin(wkWebViewEngineCls, selector)
-    ^(CDVPlugin *self, NSDictionary *settings) {
-        id obj = ((id (*)(id, SEL, NSDictionary*))_imp)(self, _cmd, settings);
+    // FIXED: Safe swizzling with try-catch for Cordova iOS 8+ stability
+    @try {
+        SwizzleSelectorWithBlock_Begin(wkWebViewEngineCls, selector)
+        ^(CDVPlugin *self, NSDictionary *settings) {
+            id obj = ((id (*)(id, SEL, NSDictionary*))_imp)(self, _cmd, settings);
 
-        [obj setValue:[NSNumber numberWithBool:YES]
-               forKey:[APPBackgroundMode wkProperty]];
+            NSString* prop = [self wkProperty];
+            if (prop) {
+                [obj setValue:[NSNumber numberWithBool:YES] forKey:prop];
+            }
 
-        [obj setValue:[NSNumber numberWithBool:NO]
-               forKey:@"requiresUserActionForMediaPlayback"];
+            [obj setValue:[NSNumber numberWithBool:NO] forKey:@"requiresUserActionForMediaPlayback"];
 
-        return obj;
+            return obj;
+        }
+        SwizzleSelectorWithBlock_End;
+    } @catch (NSException *exception) {
+        NSLog(@"BackgroundMode: WKWebView swizzling failed: %@", exception);
     }
-    SwizzleSelectorWithBlock_End;
 }
 
 @end

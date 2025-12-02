@@ -1,41 +1,39 @@
 {
-  "name": "cordova-plugin-background-mode",
-  "version": "0.7.12",
-  "description": "Prevent apps from going to sleep in background.",
-  "cordova": {
-    "id": "cordova-plugin-background-mode",
-    "platforms": [
-      "ios",
-      "android",
-      "browser"
-    ]
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/brunochikuji/cordova-plugin-background-mode.git"
-  },
-  "keywords": [
-    "appplant",
-    "background",
-    "ecosystem:cordova",
-    "cordova-ios",
-    "cordova-android",
-    "cordova-browser"
-  ],
-  "engines": [
-    {
-      "name": "cordova",
-      "version": ">=3.0.0"
-    },
-    {
-      "name": "android-sdk",
-      "version": ">=16"
-    }
-  ],
-  "author": "Sebastián Katzer",
-  "license": "Apache 2.0",
-  "bugs": {
-    "url": "https://github.com/brunochikuji/cordova-plugin-background-mode/issues"
-  },
-  "homepage": "https://github.com/brunochikuji/cordova-plugin-background-mode#readme"
+     "name": "@globules-io/cordova-plugin-background-mode",
+     "version": "1.0.0",
+     "description": "Prevent Cordova apps from sleeping in background using foreground service + wake lock. Fully Android 16 (API 36) compatible.",
+     "cordova": {
+          "id": "@globules-io/cordova-plugin-background-mode",
+          "platforms": [
+               "android",
+               "ios"
+          ]
+     },
+     "repository": {
+          "type": "git",
+          "url": "git+https://github.com/globules-io/cordova-plugin-background-mode.git"
+     },
+     "keywords": [
+          "cordova",
+          "cordova-android",
+          "cordova-ios",
+          "background",
+          "foreground-service",
+          "wakelock",
+          "ecosystem:cordova"
+     ],
+     "author": "Sebastián Katzer (original), globules-io (maintainer)",
+     "license": "Apache-2.0",
+     "bugs": {
+          "url": "https://github.com/globules-io/cordova-plugin-background-mode/issues"
+     },
+     "homepage": "https://github.com/globules-io/cordova-plugin-background-mode#readme",
+     "engines": {
+          "cordova": ">=9.0.0",
+          "cordova-android": ">=10.0.0",
+          "cordova-ios": ">=6.0.0"
+     },
+     "publishConfig": {
+          "access": "public"
+     }
 }

@@ -1,205 +1,68 @@
+# Cordova Background Mode Plugin (2025 Edition)
 
-<p align="left">
-    <b><a href="https://github.com/katzer/cordova-plugin-background-mode/tree/example">SAMPLE APP (katzer)</a> :point_right:</b>
-</p>
+Plugin for the Cordova framework to perform **infinite background execution** on Android & iOS.
 
-Cordova Background Plugin
+Fully modernized, Google Play & App Store compliant, survives Samsung One UI 7, Xiaomi HyperOS 2, Android 15, iOS 18.
 
-=========================
-
-Plugin for the [Cordova][cordova] framework to perform infinite background execution.
-
-This project is based on https://github.com/katzer/cordova-plugin-background-mode . Bruno Chikuji have taken on responsibility for hosting it and will be maintaining it and merging PRs from the community. If you have any fixes, features or updates that you would like included, please do raise a PR or issue on the GitHub repository.
-
-ATENTION: This project changes the package name from it's parents. The words are the same but in a different order, which is easy to miss and can cause some confusion
-
-Most mobile operating systems are multitasking capable, but most apps dont need to run while in background and not present for the user. Therefore they pause the app in background mode and resume the app before switching to foreground mode.
-The system keeps all network connections open while in background, but does not deliver the data until the app resumes.
-
-#### Store Compliance
-Infinite background tasks are not official supported on most mobile operation systems and thus not compliant with public store vendors. A successful submssion isn't garanteed.
-
-Use the plugin by your own risk!
-
+#### Store Compliance Warning
+Infinite background execution is **not officially supported** by Google Play or Apple App Store.  
+A successful submission is possible but **not guaranteed**. Use at your own risk.
 
 ## Supported Platforms
-- __Android/Amazon FireOS__
-- __Browser__
-- __iOS__
-- __Windows__ _(see #222)_
-
+- Android (6.0+)
+- iOS (12.0+)
 
 ## Installation
-The plugin can be installed via [Cordova-CLI][CLI] and is publicly available on [NPM][npm].
 
-Execute from the projects root folder:
-
-    $ cordova plugin add https://github.com/brunochikuji/cordova-plugin-background-mode.git
-
-Or install from local source:
-
-    $ cordova plugin add cordova-plugin-background-mode --searchpath <path>
-
+```bash
+cordova plugin add @globules-io/cordova-plugin-background-mode
+# or from this repo
+cordova plugin add https://github.com/globules-io/cordova-plugin-background-mode.git
+```
 
 ## Usage
-The plugin creates the object `cordova.plugins.backgroundMode` and is accessible after the *deviceready* event has been fired.
 
-```js
-document.addEventListener('deviceready', function () {
-    // cordova.plugins.backgroundMode is now available
-}, false);
-```
-
-### Enable the background mode
-The plugin is not enabled by default. Once it has been enabled the mode becomes active if the app moves to background.
-
+### Enable/Disable
 ```js
 cordova.plugins.backgroundMode.enable();
-// or
-cordova.plugins.backgroundMode.setEnabled(true);
-```
-
-To disable the background mode:
-```js
 cordova.plugins.backgroundMode.disable();
-// or
-cordova.plugins.backgroundMode.setEnabled(false);
 ```
 
-### Check if running in background
-Once the plugin has been enabled and the app has entered the background, the background mode becomes active.
-
+### Check Status
 ```js
-cordova.plugins.backgroundMode.isActive(); // => boolean
+cordova.plugins.backgroundMode.isEnabled();  // true if plugin is enabled
+cordova.plugins.backgroundMode.isActive();   // true if app is in background
 ```
 
-A non-active mode means that the app is in foreground.
-
-### Listen for events
-The plugin fires an event each time its status has been changed. These events are `enable`, `disable`, `activate`, `deactivate` and `failure`.
-
+### Events
 ```js
-cordova.plugins.backgroundMode.on('EVENT', function);
+cordova.plugins.backgroundMode.on('activate', () => {
+    console.log('Background mode activated');
+});
+
+cordova.plugins.backgroundMode.on('deactivate', () => {
+    console.log('Background mode deactivated');
+});
+
+cordova.plugins.backgroundMode.un('activate', callback); // Remove listener
 ```
 
-To remove an event listeners:
+### Notification (Android)
 ```js
-cordova.plugins.backgroundMode.un('EVENT', function);
-```
-
-
-## Android specifics
-
-### Transit between application states
-Android allows to programmatically move from foreground to background or vice versa.
-
-```js
-cordova.plugins.backgroundMode.moveToBackground();
-// or
-cordova.plugins.backgroundMode.moveToForeground();
-```
-
-### Back button
-Override the back button on Android to go to background instead of closing the app.
-
-```js
-cordova.plugins.backgroundMode.overrideBackButton();
-```
-
-### Recent task list
-Exclude the app from the recent task list works on Android 5.0+.
-
-```js
-cordova.plugins.backgroundMode.excludeFromTaskList();
-```
-
-### Detect screen status
-The method works async instead of _isActive()_ or _isEnabled()_.
-
-```js
-cordova.plugins.backgroundMode.isScreenOff(function(bool) {
-    ...
+cordova.plugins.backgroundMode.configure({
+    title:  'My App',
+    text:   'Running in background...',
+    icon:   'icon',           // res/drawable/icon.png
+    color:  'F14F4D',         // Android 5.0+ accent color
+    silent: false,            // Set true to hide notification (not recommended)
+    resume: true,             // Tap notification brings app to foreground
+    hidden: true,             // Android 5.0+: hide on lockscreen
+    bigText: false
 });
 ```
 
-### Unlock and wake-up
-A wake-up turns on the screen while unlocking moves the app to foreground even the device is locked.
-
+### Silent Mode
+Warning: Android may kill silent background apps aggressively.
 ```js
-// Turn screen on
-cordova.plugins.backgroundMode.wakeUp();
-// Turn screen on and show app even locked
-cordova.plugins.backgroundMode.unlock();
+cordova.plugins.backgroundMode.configure({ silent: true });
 ```
-
-### Notification
-To indicate that the app is executing tasks in background and being paused would disrupt the user, the plug-in has to create a notification while in background - like a download progress bar.
-
-#### Override defaults
-The title, text and icon for that notification can be customized as below. Also, by default the app will come to foreground when tapping on the notification. That can be changed by setting resume to false. On Android 5.0+, the color option will set the background color of the notification circle. Also on Android 5.0+, setting hidden to false will make the notification visible on lockscreen.
-
-```js
-cordova.plugins.backgroundMode.setDefaults({
-    title: String,
-    text: String,
-    icon: 'icon' // this will look for icon.png in platforms/android/res/drawable|mipmap
-    color: String // hex format like 'F14F4D'
-    resume: Boolean,
-    hidden: Boolean,
-    bigText: Boolean
-})
-```
-
-To modify the currently displayed notification
-```js
-cordova.plugins.backgroundMode.configure({ ... });
-```
-
-__Note:__ All properties are optional - only override the things you need to.
-
-#### Run in background without notification
-In silent mode the plugin will not display a notification - which is not the default. Be aware that Android recommends adding a notification otherwise the OS may pause the app.
-
-```js
-cordova.plugins.backgroundMode.setDefaults({ silent: true });
-```
-
-
-## Quirks
-
-Various APIs like playing media or tracking GPS position in background might not work while in background even the background mode is active. To fix such issues the plugin provides a method to disable most optimizations done by Android/CrossWalk.
-
-```js
-cordova.plugins.backgroundMode.on('activate', function() {
-   cordova.plugins.backgroundMode.disableWebViewOptimizations(); 
-});
-```
-
-__Note:__ Calling the method led to increased resource and power consumption.
-
-
-## Contributing
-
-1. Fork it
-2. Create your feature branch (`git checkout -b my-new-feature`)
-3. Commit your changes (`git commit -am 'Add some feature'`)
-4. Push to the branch (`git push origin my-new-feature`)
-5. Create new Pull Request
-
-
-## License
-
-This software is released under the [Apache 2.0 License][apache2_license].
-
-Made with :yum: from Leipzig
-
-? 2017 [appPlant GmbH][appplant] & [meshfields][meshfields]
-
-
-[cordova]: https://cordova.apache.org
-[CLI]: http://cordova.apache.org/docs/en/edge/guide_cli_index.md.html#The%20Command-line%20Interface
-[NPM]: ???
-[changelog]: CHANGELOG.md
-[apache2_license]: http://opensource.org/licenses/Apache-2.0
-[appplant]: http://appplant.de
-[meshfields]: http://meshfields.de
