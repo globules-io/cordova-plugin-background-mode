@@ -1,59 +1,62 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
         id="@globules-io/cordova-plugin-background-mode"
-        version="1.0.0">
-     <name>BackgroundMode</name>
-     <description>Prevent the app from going to sleep in background (foreground service + wake lock).</description>
-     <license>Apache-2.0</license>
-     <keywords>background,foreground,service,wakelock,ecosystem:cordova,cordova-android,cordova-ios</keywords>
-     <repo>git+https://github.com/globules-io/cordova-plugin-background-mode.git</repo>
-     <author>Sebastián Katzer / globules-io</author>
-     <issue>https://github.com/globules-io/cordova-plugin-background-mode/issues</issue>
-     <engines>
-          <engine name="cordova" version=">=9.0.0"/>
-          <engine name="cordova-android" version=">=10.0.0"/>
-          <engine name="android-sdk" version=">=29"/>
-     </engines>
-     <preference name="android-targetSdkVersion" value="36"/>
-     <preference name="android-compileSdkVersion" value="36"/>
-     <preference name="android-minSdkVersion" value="24"/>
-     <platform name="android">
-          <!-- Permissions -->
-          <config-file target="AndroidManifest.xml" parent="/manifest">
-               <uses-permission android:name="android.permission.WAKE_LOCK"/>
-               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
-          </config-file>
-          <!-- Foreground service with correct type for Android 14+ (required for BLE/HRM) -->
-          <config-file target="AndroidManifest.xml" parent="/manifest/application">
-               <service
+        version="1.0.1">
+
+    <name>BackgroundMode</name>
+    <description>Prevent app from sleeping in background using foreground service + wake lock (Android 14+ ready).</description>
+    <license>Apache-2.0</license>
+    <keywords>background,foreground,service,wakelock,doze,ecosystem:cordova,cordova-android</keywords>
+
+    <engines>
+        <engine name="cordova" version=">=10.0.0"/>
+        <engine name="cordova-android" version=">=11.0.0"/>
+        <engine name="android-sdk" version=">=29"/>
+    </engines>
+    
+    <platform name="android">
+
+        <config-file target="AndroidManifest.xml" parent="/manifest">
+            <uses-permission android:name="android.permission.WAKE_LOCK"/>
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+            <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+        </config-file>
+
+        <config-file target="AndroidManifest.xml" parent="/manifest/application">
+            <service
                 android:name="de.appplant.cordova.plugin.background.ForegroundService"
                 android:enabled="true"
                 android:exported="false"
-                android:foregroundServiceType="connectedDevice"/>
-          </config-file>
-          <!-- Source files -->
-          <source-file src="src/android/BackgroundMode.java"
+                android:foregroundServiceType="specialUse|connectedDevice"/>
+        </config-file>
+
+        <source-file src="src/android/BackgroundMode.java"
                      target-dir="src/de/appplant/cordova/plugin/background"/>
-          <source-file src="src/android/ForegroundService.java"
+        <source-file src="src/android/ForegroundService.java"
                      target-dir="src/de/appplant/cordova/plugin/background"/>
-          <source-file src="src/android/BackgroundModeExt.java"
+        <source-file src="src/android/BackgroundModeExt.java"
                      target-dir="src/de/appplant/cordova/plugin/background"/>
-     </platform>
-     <platform name="ios">
-          <!-- iOS background modes -->
-          <config-file target="*-Info.plist" parent="UIBackgroundModes">
-               <array>
-                    <string>audio</string>
-                    <string>location</string>
-                    <string>fetch</string>
-                    <string>remote-notification</string>
-               </array>
-          </config-file>
-          <header-file src="src/ios/APPBackgroundMode.h"/>
-          <source-file src="src/ios/APPBackgroundMode.m"/>
-     </platform>
-     <js-module src="www/backgroundMode.js" name="BackgroundMode">
-          <clobbers target="cordova.plugins.backgroundMode"/>
-     </js-module>
+
+    </platform>
+
+    <platform name="ios">
+        <config-file target="*-Info.plist" parent="UIBackgroundModes">
+            <array>
+                <string>audio</string>
+                <string>location</string>
+                <string>fetch</string>
+                <string>remote-notification</string>
+            </array>
+        </config-file>
+
+        <header-file src="src/ios/APPBackgroundMode.h"/>
+        <source-file src="src/ios/APPBackgroundMode.m"/>
+    </platform>
+
+    <js-module src="www/backgroundMode.js" name="BackgroundMode">
+        <clobbers target="cordova.plugins.backgroundMode"/>
+    </js-module>
+
 </plugin>

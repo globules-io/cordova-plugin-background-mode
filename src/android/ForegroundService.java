@@ -1,29 +1,9 @@
-/*
- Copyright 2013 Sebastián Katzer
-
- Licensed to the Apache Software Foundation (ASF) under one
- or more contributor license agreements.  See the NOTICE file
- distributed with this work for additional information
- regarding copyright ownership.  The ASF licenses this file
- to you under the Apache License, Version 2.0 (the
- "License"); you may not use this file except in compliance
- with the License.  You may obtain a copy of the License at
-
- http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing,
- software distributed under the License is distributed on an
- "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- KIND, either express or implied.  See the License for the
- specific language governing permissions and limitations
- under the License.
- */
-
 package de.appplant.cordova.plugin.background;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Notification;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
@@ -35,287 +15,190 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
-import android.app.NotificationChannel;
 
 import org.json.JSONObject;
 
 import static android.os.PowerManager.PARTIAL_WAKE_LOCK;
 
-/**
- * Puts the service in a foreground state, where the system considers it to be
- * something the user is actively aware of and thus not a candidate for killing
- * when low on memory.
- */
 public class ForegroundService extends Service {
 
-     // Fixed ID for the 'foreground' notification
      public static final int NOTIFICATION_ID = -574543954;
 
-     // Default title of the background notification
      private static final String NOTIFICATION_TITLE = "App is running in background";
-
-     // Default text of the background notification
      private static final String NOTIFICATION_TEXT = "Doing heavy tasks.";
-
-     // Default icon of the background notification
      private static final String NOTIFICATION_ICON = "icon";
 
-     // Binder given to clients
      private final IBinder binder = new ForegroundBinder();
-
-     // Partial wake lock to prevent the app from going to sleep when locked
      private PowerManager.WakeLock wakeLock;
 
-     /**
-      * Allow clients to call on to the service.
-      */
      @Override
      public IBinder onBind(Intent intent) {
           return binder;
      }
 
-     /**
-      * Class used for the client Binder. Because we know this service always
-      * runs in the same process as its clients, we don't need to deal with IPC.
-      */
      class ForegroundBinder extends Binder {
           ForegroundService getService() {
-               // Return this instance of ForegroundService
-               // so clients can call public methods
                return ForegroundService.this;
           }
      }
 
-     /**
-      * Put the service in a foreground state to prevent app from being killed
-      * by the OS.
-      */
      @Override
      public void onCreate() {
           super.onCreate();
           keepAwake();
      }
 
-     /**
-      * No need to run headless on destroy.
-      */
      @Override
      public void onDestroy() {
           super.onDestroy();
           sleepWell();
      }
 
-     /**
-      * Prevent Android from stopping the background service automatically.
-      */
      @Override
      public int onStartCommand(Intent intent, int flags, int startId) {
           return START_STICKY;
      }
 
-     /**
-      * Put the service in a foreground state to prevent app from being killed
-      * by the OS.
-      */
      @SuppressLint("WakelockTimeout")
      private void keepAwake() {
           JSONObject settings = BackgroundMode.getSettings();
           boolean isSilent = settings.optBoolean("silent", false);
 
           if (!isSilent) {
+               Notification notification = makeNotification(settings);
+
+               int foregroundType = 0;
+               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // Android 14+
+                    foregroundType = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+               } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // CONNECTED_DEVICE is the least-restricted fallback on Chinese ROMs
+                    foregroundType = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
+               }
+
                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    int foregroundType = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE;
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                         foregroundType = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
-                    }
-                    startForeground(NOTIFICATION_ID, makeNotification(), foregroundType);
+                    startForeground(NOTIFICATION_ID, notification, foregroundType);
                } else {
-                    startForeground(NOTIFICATION_ID, makeNotification());
+                    startForeground(NOTIFICATION_ID, notification);
                }
           }
 
+          // PARTIAL_WAKE_LOCK without timeout = survives Doze + OEM killers
           PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-
-          wakeLock = pm.newWakeLock(
-                    PARTIAL_WAKE_LOCK, "backgroundmode:wakelock");
-
-          wakeLock.acquire();
+          wakeLock = pm.newWakeLock(PARTIAL_WAKE_LOCK, "backgroundmode:wakelock");
+          wakeLock.acquire(); // ← NO TIMEOUT. This is the key.
      }
 
-     /**
-      * Stop background mode.
-      */
      private void sleepWell() {
           stopForeground(true);
           getNotificationManager().cancel(NOTIFICATION_ID);
 
-          if (wakeLock != null) {
+          if (wakeLock != null && wakeLock.isHeld()) {
                wakeLock.release();
                wakeLock = null;
           }
-
           stopSelf();
      }
 
-     /**
-      * Create a notification as the visible part to be able to put the service
-      * in a foreground state by using the default settings.
-      */
      private Notification makeNotification() {
           return makeNotification(BackgroundMode.getSettings());
      }
 
-     /**
-      * Create a notification as the visible part to be able to put the service
-      * in a foreground state.
-      *
-      * @param settings The config settings
-      */
      private Notification makeNotification(JSONObject settings) {
-          // use channelid for Oreo and higher
-          String CHANNEL_ID = "cordova-plugin-background-mode-id";
-          if (Build.VERSION.SDK_INT >= 26) {
+          final String CHANNEL_ID = "cordova-plugin-background-mode-id";
+
+          // Create channel (once)
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                NotificationChannel channel = new NotificationChannel(
                          CHANNEL_ID,
-                         settings.optString("channelName", "Background tracking"), NotificationManager.IMPORTANCE_LOW);
-               channel.setDescription(settings.optString("text", "Heart-rate monitor connected"));
+                         settings.optString("channelName", "Background Service"),
+                         NotificationManager.IMPORTANCE_LOW);
+               channel.setDescription(settings.optString("text", "Running in background"));
                channel.setShowBadge(false);
                channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
                getNotificationManager().createNotificationChannel(channel);
           }
+
           String title = settings.optString("title", NOTIFICATION_TITLE);
           String text = settings.optString("text", NOTIFICATION_TEXT);
           boolean bigText = settings.optBoolean("bigText", false);
+          boolean hidden = settings.optBoolean("hidden", false); // false = visible notification
 
           Context context = getApplicationContext();
-          String pkgName = context.getPackageName();
           Intent intent = context.getPackageManager()
-                    .getLaunchIntentForPackage(pkgName);
+                    .getLaunchIntentForPackage(context.getPackageName());
 
-          Notification.Builder notification = new Notification.Builder(context)
-                    .setContentTitle(title)
+          Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? new Notification.Builder(context, CHANNEL_ID)
+                    : new Notification.Builder(context);
+
+          builder.setContentTitle(title)
                     .setContentText(text)
                     .setOngoing(true)
-                    .setSmallIcon(getIconResId(settings));
-
-          if (Build.VERSION.SDK_INT >= 26) {
-               notification.setChannelId(CHANNEL_ID);
-          }
-
-          boolean hidden = settings.optBoolean("hidden", true);
-          int priority = hidden ? Notification.PRIORITY_MIN : Notification.PRIORITY_LOW;
-          notification.setPriority(priority);
-
-          // Android 11+ lock-screen visibility
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-               notification.setVisibility(Notification.VISIBILITY_PUBLIC);
-          }
+                    .setSmallIcon(getIconResId(settings))
+                    .setPriority(hidden ? Notification.PRIORITY_MIN : Notification.PRIORITY_LOW)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC);
 
           if (bigText || text.contains("\n")) {
-               notification.setStyle(
-                         new Notification.BigTextStyle().bigText(text));
+               builder.setStyle(new Notification.BigTextStyle().bigText(text));
           }
 
-          setColor(notification, settings);
+          setColor(builder, settings);
 
-          if (intent != null && settings.optBoolean("resume")) {
-               int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-
-               if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    flags = flags | PendingIntent.FLAG_IMMUTABLE;
-               }
+          if (intent != null && settings.optBoolean("resume", true)) {
                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-               PendingIntent contentIntent = PendingIntent.getActivity(
-                         context, NOTIFICATION_ID, intent,
-                         flags);
-
-               notification.setContentIntent(contentIntent);
+               int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    flags |= PendingIntent.FLAG_IMMUTABLE;
+               }
+               PendingIntent pi = PendingIntent.getActivity(context, NOTIFICATION_ID, intent, flags);
+               builder.setContentIntent(pi);
           }
 
-          return notification.build();
+          return builder.build();
      }
 
-     /**
-      * Update the notification.
-      *
-      * @param settings The config settings
-      */
      protected void updateNotification(JSONObject settings) {
           boolean isSilent = settings.optBoolean("silent", false);
-
           if (isSilent) {
                stopForeground(true);
                return;
           }
-
-          Notification notification = makeNotification(settings);
-          getNotificationManager().notify(NOTIFICATION_ID, notification);
-
+          Notification n = makeNotification(settings);
+          getNotificationManager().notify(NOTIFICATION_ID, n);
      }
 
-     /**
-      * Retrieves the resource ID of the app icon.
-      *
-      * @param settings A JSON dict containing the icon name.
-      */
      private int getIconResId(JSONObject settings) {
           String icon = settings.optString("icon", NOTIFICATION_ICON);
-
           int resId = getIconResId(icon, "mipmap");
-
-          if (resId == 0) {
+          if (resId == 0)
                resId = getIconResId(icon, "drawable");
-          }
-
+          if (resId == 0)
+               resId = android.R.drawable.ic_dialog_info;
           return resId;
      }
 
-     /**
-      * Retrieve resource id of the specified icon.
-      *
-      * @param icon The name of the icon.
-      * @param type The resource type where to look for.
-      *
-      * @return The resource id or 0 if not found.
-      */
      private int getIconResId(String icon, String type) {
           Resources res = getResources();
           String pkgName = getPackageName();
-
           int resId = res.getIdentifier(icon, type, pkgName);
-
           if (resId == 0) {
                resId = res.getIdentifier("icon", type, pkgName);
           }
-
           return resId;
      }
 
-     /**
-      * Set notification color if its supported by the SDK.
-      *
-      * @param notification A Notification.Builder instance
-      * @param settings     A JSON dict containing the color definition (red: FF0000)
-      */
      @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-     private void setColor(Notification.Builder notification, JSONObject settings) {
-
+     private void setColor(Notification.Builder builder, JSONObject settings) {
           String hex = settings.optString("color", null);
-
           if (Build.VERSION.SDK_INT < 21 || hex == null)
                return;
-
           try {
-               int aRGB = Integer.parseInt(hex, 16) + 0xFF000000;
-               notification.setColor(aRGB);
-          } catch (Exception e) {
-               e.printStackTrace();
+               int argb = Integer.parseInt(hex, 16) + 0xFF000000;
+               builder.setColor(argb);
+          } catch (Exception ignored) {
           }
      }
 
-     /**
-      * Returns the shared notification service manager.
-      */
      private NotificationManager getNotificationManager() {
           return (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
      }
