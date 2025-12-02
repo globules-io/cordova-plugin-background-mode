@@ -1,6 +1,6 @@
 # Cordova Background Mode Plugin (2025 Edition)
 
-Plugin for the [Cordova][cordova] framework to perform **infinite background execution** on Android & iOS.
+Plugin for the Cordova framework to perform **infinite background execution** on Android & iOS.
 
 Fully modernized, Google Play & App Store compliant, survives Samsung One UI 7, Xiaomi HyperOS 2, Android 15, iOS 18.
 
