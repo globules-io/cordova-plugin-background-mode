@@ -1,273 +1,224 @@
 package de.appplant.cordova.plugin.background;
 
 import android.app.Activity;
-import android.app.PendingIntent;
+import android.app.AlertDialog;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
-import android.content.ServiceConnection;
-import android.os.IBinder;
+import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
+import android.view.View;
 
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import de.appplant.cordova.plugin.background.ForegroundService.ForegroundBinder;
+import java.util.Arrays;
+import java.util.List;
 
-import static android.content.Context.BIND_AUTO_CREATE;
-import static de.appplant.cordova.plugin.background.BackgroundModeExt.clearKeyguardFlags;
+import static android.content.Context.POWER_SERVICE;
+import static android.content.pm.PackageManager.MATCH_DEFAULT_ONLY;
+import static android.os.Build.VERSION.SDK_INT;
+import static android.os.Build.VERSION_CODES.M;
+import static android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS;
+import static android.R.string.cancel;
+import static android.R.string.ok;
+import static android.R.style.Theme_DeviceDefault_Light_Dialog;
 
 public class BackgroundMode extends CordovaPlugin {
 
-     // Event types for callbacks
-     private enum Event {
-          ACTIVATE, DEACTIVATE, FAILURE
-     }
+    private static final String JS_NAMESPACE = "cordova.plugins.backgroundMode";
+    private static final String ACTION_UPDATE = "de.appplant.cordova.plugin.background.UPDATE_NOTIFICATION";
 
-     // Plugin namespace
-     private static final String JS_NAMESPACE = "cordova.plugins.backgroundMode";
+    private boolean isEnabled = false;
+    private boolean isActive = false;
+    private static JSONObject settings = new JSONObject();
 
-     // Flag indicates if the app is in background or foreground
-     private boolean inBackground = false;
+    @Override
+    public boolean execute(String action, JSONArray args, CallbackContext callback) {
+        switch (action) {
+            case "enable":
+                enable();
+                callback.success();
+                return true;
+            case "disable":
+                disable();
+                callback.success();
+                return true;
+            case "configure":
+                configure(args.optJSONObject(0), args.optBoolean(1, true));
+                callback.success();
+                return true;
+            default:
+                return false;
+        }
+    }
 
-     // Flag indicates if the plugin is enabled or disabled
-     private boolean isDisabled = true;
+    @Override
+    public void onPause(boolean multitasking) {
+        if (isEnabled) startService();
+    }
 
-     // Flag indicates if the service is bind
-     private boolean isBind = false;
+    @Override
+    public void onResume(boolean multitasking) {
+        if (isEnabled) stopService();
+    }
 
-     // Default settings for the notification
-     private static JSONObject defaultSettings = new JSONObject();
+    @Override
+    public void onDestroy() {
+        stopService();
+    }
 
-     // Service that keeps the app awake
-     private ForegroundService service;
+    // ——————————————————————————————————————————————————————
+    //  PUBLIC API
+    // ——————————————————————————————————————————————————————
 
-     // Used to (un)bind the service to with the activity
-     private final ServiceConnection connection = new ServiceConnection() {
-          @Override
-          public void onServiceConnected(ComponentName name, IBinder service) {
-               ForegroundBinder binder = (ForegroundBinder) service;
-               BackgroundMode.this.service = binder.getService();
-          }
+    private void enable() {
+        if (isEnabled) return;
+        isEnabled = true;
 
-          @Override
-          public void onServiceDisconnected(ComponentName name) {
-               fireEvent(Event.FAILURE, "'service disconnected'");
-          }
-     };
+        autoBatteryOpt();                    // ← opens Xiaomi/Samsung settings
+        disableWebViewOptimizations();       // ← keeps WebView alive
+        startService();                      // ← starts foreground service
+        fireEvent("activate");
+    }
 
-     /**
-      * Executes the request.
-      *
-      * @param action   The action to execute.
-      * @param args     The exec() arguments.
-      * @param callback The callback context used when
-      *                 calling back into JavaScript.
-      *
-      * @return Returning false results in a "MethodNotFound" error.
-      */
-     @Override
-     public boolean execute(String action, JSONArray args,
-               CallbackContext callback) {
-          boolean validAction = true;
+    private void disable() {
+        if (!isEnabled) return;
+        isEnabled = false;
+        stopService();
+        fireEvent("deactivate");
+    }
 
-          switch (action) {
-               case "configure":
-                    configure(args.optJSONObject(0), args.optBoolean(1));
-                    break;
-               case "enable":
-                    enableMode();
-                    break;
-               case "disable":
-                    disableMode();
-                    break;
-               default:
-                    validAction = false;
-          }
+    private void configure(JSONObject newSettings, boolean updateNotification) {
+        try {
+            if (settings.length() == 0) settings = new JSONObject();
+            JSONArray keys = newSettings.names();
+            if (keys != null) {
+                for (int i = 0; i < keys.length(); i++) {
+                    String key = keys.getString(i);
+                    settings.put(key, newSettings.get(key));
+                }
+            }
+        } catch (Exception ignored) {}
 
-          if (validAction) {
-               callback.success();
-          } else {
-               callback.error("Invalid action: " + action);
-          }
+        if (updateNotification && isActive) {
+            Intent intent = new Intent(ACTION_UPDATE);
+            intent.setPackage(cordova.getActivity().getPackageName());
+            intent.putExtra("settings", settings.toString());
+            cordova.getActivity().sendBroadcast(intent);
+        }
+    }
 
-          return validAction;
-     }
+    // ——————————————————————————————————————————————————————
+    //  AUTO-SURVIVAL (everything happens automatically)
+    // ——————————————————————————————————————————————————————
 
-     /**
-      * Called when the system is about to start resuming a previous activity.
-      *
-      * @param multitasking Flag indicating if multitasking is turned on for app.
-      */
-     @Override
-     public void onPause(boolean multitasking) {
-          try {
-               inBackground = true;
-               startService();
-          } finally {
-               clearKeyguardFlags(cordova.getActivity());
-          }
-     }
+    private void autoBatteryOpt() {
+        if (SDK_INT < M) return;
 
-     /**
-      * Called when the activity is no longer visible to the user.
-      */
-     @Override
-     public void onStop() {
-          clearKeyguardFlags(cordova.getActivity());
-     }
+        Activity activity = cordova.getActivity();
+        String pkg = activity.getPackageName();
+        PowerManager pm = (PowerManager) activity.getSystemService(POWER_SERVICE);
 
-     /**
-      * Called when the activity will start interacting with the user.
-      *
-      * @param multitasking Flag indicating if multitasking is turned on for app.
-      */
-     @Override
-     public void onResume(boolean multitasking) {
-          inBackground = false;
-          stopService();
-     }
+        if (pm.isIgnoringBatteryOptimizations(pkg)) {
+            openOemSettingsSilently();
+            return;
+        }
 
-     /**
-      * Called when the activity will be destroyed.
-      */
-     @Override
-     public void onDestroy() {
-          stopService();
-     }
+        Intent i = new Intent(ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+        i.setData(Uri.parse("package:" + pkg));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        activity.startActivity(i);
 
-     /**
-      * Enable the background mode.
-      */
-     private void enableMode() {
-          isDisabled = false;
-          if (inBackground) {
-               startService();
-          }
-          try {
-               cordova.getThreadPool().execute(() -> {
-                    webView.loadUrl(
-                              "javascript:if (cordova.plugins.backgroundMode) { cordova.plugins.backgroundMode.execute('autoBatteryOpt', []); }");
-               });
-          } catch (Exception e) {
-               fireEvent(Event.FAILURE, "'" + e.getMessage() + "'");
-          }
-     }
+        openOemSettingsWithDialog();
+    }
 
-     /**
-      * Disable the background mode.
-      */
-     private void disableMode() {
-          stopService();
-          isDisabled = true;
-     }
+    private void disableWebViewOptimizations() {
+        new Thread(() -> {
+            try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+            cordova.getActivity().runOnUiThread(() -> {
+                View view = webView.getEngine().getView();
+                try {
+                    Class.forName("org.crosswalk.engine.XWalkCordovaView")
+                         .getMethod("onShow").invoke(view);
+                } catch (Exception ignored) {
+                    view.dispatchWindowVisibilityChanged(View.VISIBLE);
+                }
+            });
+        }).start();
+    }
 
-     /**
-      * Update the default settings and configure the notification.
-      *
-      * @param settings The settings
-      * @param update   A truthy value means to update the running service.
-      */
-     private void configure(JSONObject settings, boolean update) {
-          if (update) {
-               updateNotification(settings);
-          } else {
-               setDefaultSettings(settings);
-          }
-     }
+    private void openOemSettingsWithDialog() {
+        Activity a = cordova.getActivity();
+        PackageManager pm = a.getPackageManager();
 
-     /**
-      * Update the default settings for the notification.
-      *
-      * @param settings The new default settings
-      */
-     private void setDefaultSettings(JSONObject settings) {
-          defaultSettings = settings;
-     }
+        for (Intent i : getOemIntents()) {
+            if (pm.resolveActivity(i, MATCH_DEFAULT_ONLY) != null) {
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                new AlertDialog.Builder(a, Theme_DeviceDefault_Light_Dialog)
+                    .setMessage("Please enable Auto-start / Background running")
+                    .setPositiveButton(ok, (d, w) -> a.startActivity(i))
+                    .setNegativeButton(cancel, null)
+                    .setCancelable(true)
+                    .show();
+                return;
+            }
+        }
+    }
 
-     /**
-      * Returns the settings for the new/updated notification.
-      */
-     static JSONObject getSettings() {
-          return defaultSettings;
-     }
+    private void openOemSettingsSilently() {
+        Activity a = cordova.getActivity();
+        PackageManager pm = a.getPackageManager();
+        for (Intent i : getOemIntents()) {
+            if (pm.resolveActivity(i, MATCH_DEFAULT_ONLY) != null) {
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                a.startActivity(i);
+                break;
+            }
+        }
+    }
 
-     /**
-      * Update the notification.
-      *
-      * @param settings The config settings
-      */
-     private void updateNotification(JSONObject settings) {
-          if (isBind) {
-               service.updateNotification(settings);
-          }
-     }
+    private List<Intent> getOemIntents() {
+        return Arrays.asList(
+            new Intent().setComponent(new ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")),
+            new Intent().setComponent(new ComponentName("com.miui.securitycenter", "com.miui.powerkeeper.ui.PowerUsageModelActivity")),
+            new Intent().setComponent(new ComponentName("com.samsung.android.sm", "com.samsung.android.sm.ui.battery.BatteryActivity")),
+            new Intent().setComponent(new ComponentName("com.samsung.android.sm_cn", "com.samsung.android.sm.ui.ram.AutoRunActivity")),
+            new Intent().setComponent(new ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.coloros.safecenter", "com.coloros.safe.permission.startup.StartupAppListActivity")),
+            new Intent().setComponent(new ComponentName("com.iqoo.secure", "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager"))
+        );
+    }
 
-     /**
-      * Bind the activity to a background service and put them into foreground
-      * state.
-      */
-     private void startService() {
-          Activity context = cordova.getActivity();
+    // ——————————————————————————————————————————————————————
+    //  Service control
+    // ——————————————————————————————————————————————————————
 
-          if (isDisabled || isBind)
-               return;
+    private void startService() {
+        if (isActive) return;
+        Intent i = new Intent(cordova.getActivity(), ForegroundService.class);
+        i.putExtra("settings", settings.toString());
+        cordova.getContext().startService(i);
+        isActive = true;
+    }
 
-          Intent intent = new Intent(context, ForegroundService.class);
+    private void stopService() {
+        if (!isActive) return;
+        cordova.getContext().stopService(new Intent(cordova.getActivity(), ForegroundService.class));
+        isActive = false;
+    }
 
-          try {
-               context.bindService(intent, connection, BIND_AUTO_CREATE);
-               fireEvent(Event.ACTIVATE, null);
-               context.startService(intent);
-          } catch (Exception e) {
-               fireEvent(Event.FAILURE, String.format("'%s'", e.getMessage()));
-          }
+    private void fireEvent(String event) {
+        String js = JS_NAMESPACE + "._isActive=" + ("activate".equals(event) ? "true" : "false") +
+                    "; " + JS_NAMESPACE + ".fireEvent('" + event + "');";
+        webView.loadUrl("javascript:" + js);
+    }
 
-          isBind = true;
-     }
-
-     /**
-      * Bind the activity to a background service and put them into foreground
-      * state.
-      */
-     private void stopService() {
-          Activity context = cordova.getActivity();
-          Intent intent = new Intent(context, ForegroundService.class);
-
-          if (!isBind)
-               return;
-
-          fireEvent(Event.DEACTIVATE, null);
-          context.unbindService(connection);
-          context.stopService(intent);
-
-          isBind = false;
-     }
-
-     /**
-      * Fire vent with some parameters inside the web view.
-      *
-      * @param event  The name of the event
-      * @param params Optional arguments for the event
-      */
-     private void fireEvent(Event event, String params) {
-          String eventName = event.name().toLowerCase();
-          Boolean active = event == Event.ACTIVATE;
-
-          String str = String.format("%s._setActive(%b)",
-                    JS_NAMESPACE, active);
-
-          str = String.format("%s;%s.on('%s', %s)",
-                    str, JS_NAMESPACE, eventName, params);
-
-          str = String.format("%s;%s.fireEvent('%s',%s);",
-                    str, JS_NAMESPACE, eventName, params);
-
-          final String js = str;
-
-          cordova.getActivity().runOnUiThread(() -> {
-               webView.loadUrl("javascript:" + js);
-          });
-     }
+    public static JSONObject getSettings() {
+        return settings.length() > 0 ? settings : new JSONObject();
+    }
 }
