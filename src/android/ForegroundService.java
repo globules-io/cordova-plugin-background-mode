@@ -1,4 +1,4 @@
-package de.appplant.cordova.plugin.background;
+package io.globules.cordova.plugin;
 
 import android.annotation.SuppressLint;
 import android.app.Notification;
@@ -21,7 +21,7 @@ public class ForegroundService extends Service {
 
     private static final int NOTIF_ID = 98234157;
     private static final String CHANNEL_ID = "backgroundmode_channel";
-    private static final String ACTION_UPDATE = "de.appplant.cordova.plugin.background.UPDATE_NOTIFICATION";
+    private static final String ACTION_UPDATE = "io.globules.cordova.plugin.backgroundMode.UPDATE_NOTIFICATION";
 
     private PowerManager.WakeLock wakeLock;
     private BroadcastReceiver updateReceiver;

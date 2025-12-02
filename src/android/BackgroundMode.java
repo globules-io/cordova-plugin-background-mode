@@ -1,4 +1,4 @@
-package de.appplant.cordova.plugin.background;
+package io.globules.cordova.plugin;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
+import android.util.Log;
 import android.view.View;
 
 import org.apache.cordova.CallbackContext;
@@ -30,8 +31,9 @@ import static android.R.style.Theme_DeviceDefault_Light_Dialog;
 
 public class BackgroundMode extends CordovaPlugin {
 
+    private static final String TAG = "BGDEBUG";  // For logcat
     private static final String JS_NAMESPACE = "cordova.plugins.backgroundMode";
-    private static final String ACTION_UPDATE = "de.appplant.cordova.plugin.background.UPDATE_NOTIFICATION";
+    private static final String ACTION_UPDATE = "io.globules.cordova.plugin.backgroundMode.UPDATE_NOTIFICATION";
 
     private boolean isEnabled = false;
     private boolean isActive = false;
@@ -39,6 +41,7 @@ public class BackgroundMode extends CordovaPlugin {
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callback) {
+        Log.d(TAG, "JS execute: " + action);
         switch (action) {
             case "enable":
                 enable();
@@ -53,47 +56,90 @@ public class BackgroundMode extends CordovaPlugin {
                 callback.success();
                 return true;
             default:
+                Log.e(TAG, "Unknown action: " + action);
                 return false;
         }
     }
 
+    // ————————————————————————————————————————
+    // LIFECYCLE: These are the ONLY places we fire events
+    // ————————————————————————————————————————
     @Override
     public void onPause(boolean multitasking) {
-        if (isEnabled) startService();
+        Log.d(TAG, "onPause called — app backgrounding, isEnabled=" + isEnabled);
+        if (isEnabled && !isActive) {
+            try {
+                startService();
+                isActive = true;
+                fireEvent("activate");
+                Log.d(TAG, "onPause: Service started, activate fired");
+            } catch (Exception e) {
+                Log.e(TAG, "onPause crash: " + e.getMessage(), e);
+            }
+        }
     }
 
     @Override
     public void onResume(boolean multitasking) {
-        if (isEnabled) stopService();
+        Log.d(TAG, "onResume called — app foregrounding, isActive=" + isActive);
+        if (isEnabled && isActive) {
+            try {
+                stopService();
+                isActive = false;
+                fireEvent("deactivate");
+                Log.d(TAG, "onResume: Service stopped, deactivate fired");
+            } catch (Exception e) {
+                Log.e(TAG, "onResume crash: " + e.getMessage(), e);
+            }
+        }
     }
 
     @Override
     public void onDestroy() {
-        stopService();
+        Log.d(TAG, "onDestroy called — cleaning up");
+        disable();
     }
 
-    // ——————————————————————————————————————————————————————
-    //  PUBLIC API
-    // ——————————————————————————————————————————————————————
-
+    // ————————————————————————————————————————
+    // PUBLIC API
+    // ————————————————————————————————————————
     private void enable() {
-        if (isEnabled) return;
+        Log.d(TAG, "enable() called from JS");
+        if (isEnabled) {
+            Log.d(TAG, "enable(): Already enabled");
+            return;
+        }
         isEnabled = true;
+        Log.d(TAG, "enable(): Enabled — running auto-survival");
 
-        autoBatteryOpt();                    // ← opens Xiaomi/Samsung settings
-        disableWebViewOptimizations();       // ← keeps WebView alive
-        startService();                      // ← starts foreground service
-        fireEvent("activate");
+        // Auto-survival actions — NO event firing here
+        try {
+            autoBatteryOpt();
+            disableWebViewOptimizations();
+            Log.d(TAG, "enable(): Auto-survival complete");
+        } catch (Exception e) {
+            Log.e(TAG, "enable() crash: " + e.getMessage(), e);
+        }
+        // activate event will fire in onPause()
     }
 
     private void disable() {
-        if (!isEnabled) return;
+        Log.d(TAG, "disable() called");
+        if (!isEnabled) {
+            Log.d(TAG, "disable(): Not enabled");
+            return;
+        }
         isEnabled = false;
-        stopService();
-        fireEvent("deactivate");
+        try {
+            stopService();
+            isActive = false;
+        } catch (Exception e) {
+            Log.e(TAG, "disable() crash: " + e.getMessage(), e);
+        }
     }
 
     private void configure(JSONObject newSettings, boolean updateNotification) {
+        Log.d(TAG, "configure() called");
         try {
             if (settings.length() == 0) settings = new JSONObject();
             JSONArray keys = newSettings.names();
@@ -103,41 +149,54 @@ public class BackgroundMode extends CordovaPlugin {
                     settings.put(key, newSettings.get(key));
                 }
             }
-        } catch (Exception ignored) {}
+            Log.d(TAG, "configure(): Settings updated: " + settings.toString());
+        } catch (Exception e) {
+            Log.e(TAG, "configure() crash: " + e.getMessage(), e);
+        }
 
         if (updateNotification && isActive) {
-            Intent intent = new Intent(ACTION_UPDATE);
-            intent.setPackage(cordova.getActivity().getPackageName());
-            intent.putExtra("settings", settings.toString());
-            cordova.getActivity().sendBroadcast(intent);
+            try {
+                Intent intent = new Intent(ACTION_UPDATE);
+                intent.setPackage(cordova.getActivity().getPackageName());
+                intent.putExtra("settings", settings.toString());
+                cordova.getActivity().sendBroadcast(intent);
+                Log.d(TAG, "configure(): Broadcast sent for update");
+            } catch (Exception e) {
+                Log.e(TAG, "configure() broadcast crash: " + e.getMessage(), e);
+            }
         }
     }
 
-    // ——————————————————————————————————————————————————————
-    //  AUTO-SURVIVAL (everything happens automatically)
-    // ——————————————————————————————————————————————————————
-
+    // ————————————————————————————————————————
+    // AUTO-SURVIVAL
+    // ————————————————————————————————————————
     private void autoBatteryOpt() {
-        if (SDK_INT < M) return;
+        Log.d(TAG, "autoBatteryOpt() called");
+        if (SDK_INT < M) {
+            Log.d(TAG, "autoBatteryOpt(): API too low");
+            return;
+        }
 
-        Activity activity = cordova.getActivity();
-        String pkg = activity.getPackageName();
-        PowerManager pm = (PowerManager) activity.getSystemService(POWER_SERVICE);
+        Activity a = cordova.getActivity();
+        String pkg = a.getPackageName();
+        PowerManager pm = (PowerManager) a.getSystemService(POWER_SERVICE);
 
         if (pm.isIgnoringBatteryOptimizations(pkg)) {
+            Log.d(TAG, "autoBatteryOpt(): Already ignored — opening OEM silently");
             openOemSettingsSilently();
             return;
         }
 
+        Log.d(TAG, "autoBatteryOpt(): Requesting ignore");
         Intent i = new Intent(ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
         i.setData(Uri.parse("package:" + pkg));
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        activity.startActivity(i);
-
+        a.startActivity(i);
         openOemSettingsWithDialog();
     }
 
     private void disableWebViewOptimizations() {
+        Log.d(TAG, "disableWebViewOptimizations() called");
         new Thread(() -> {
             try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
             cordova.getActivity().runOnUiThread(() -> {
@@ -145,17 +204,19 @@ public class BackgroundMode extends CordovaPlugin {
                 try {
                     Class.forName("org.crosswalk.engine.XWalkCordovaView")
                          .getMethod("onShow").invoke(view);
-                } catch (Exception ignored) {
+                    Log.d(TAG, "disableWebViewOptimizations(): Crosswalk fixed");
+                } catch (Exception e) {
                     view.dispatchWindowVisibilityChanged(View.VISIBLE);
+                    Log.d(TAG, "disableWebViewOptimizations(): Standard WebView fixed");
                 }
             });
         }).start();
     }
 
     private void openOemSettingsWithDialog() {
+        Log.d(TAG, "openOemSettingsWithDialog() called");
         Activity a = cordova.getActivity();
         PackageManager pm = a.getPackageManager();
-
         for (Intent i : getOemIntents()) {
             if (pm.resolveActivity(i, MATCH_DEFAULT_ONLY) != null) {
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -165,21 +226,26 @@ public class BackgroundMode extends CordovaPlugin {
                     .setNegativeButton(cancel, null)
                     .setCancelable(true)
                     .show();
+                Log.d(TAG, "openOemSettingsWithDialog(): Dialog shown for " + i.getComponent().getClassName());
                 return;
             }
         }
+        Log.d(TAG, "openOemSettingsWithDialog(): No matching OEM intent");
     }
 
     private void openOemSettingsSilently() {
+        Log.d(TAG, "openOemSettingsSilently() called");
         Activity a = cordova.getActivity();
         PackageManager pm = a.getPackageManager();
         for (Intent i : getOemIntents()) {
             if (pm.resolveActivity(i, MATCH_DEFAULT_ONLY) != null) {
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 a.startActivity(i);
+                Log.d(TAG, "openOemSettingsSilently(): Opened " + i.getComponent().getClassName());
                 break;
             }
         }
+        Log.d(TAG, "openOemSettingsSilently(): No matching OEM intent");
     }
 
     private List<Intent> getOemIntents() {
@@ -194,25 +260,46 @@ public class BackgroundMode extends CordovaPlugin {
         );
     }
 
-    // ——————————————————————————————————————————————————————
-    //  Service control
-    // ——————————————————————————————————————————————————————
-
+    // ————————————————————————————————————————
+    // SERVICE CONTROL (no events here)
+    // ————————————————————————————————————————
     private void startService() {
-        if (isActive) return;
-        Intent i = new Intent(cordova.getActivity(), ForegroundService.class);
-        i.putExtra("settings", settings.toString());
-        cordova.getContext().startService(i);
-        isActive = true;
+        Log.d(TAG, "startService() called");
+        if (isActive) {
+            Log.d(TAG, "startService(): Already active");
+            return;
+        }
+        try {
+            Intent i = new Intent(cordova.getActivity(), ForegroundService.class);
+            i.putExtra("settings", settings.toString());
+            cordova.getContext().startService(i);
+            isActive = true;
+            Log.d(TAG, "startService(): Success — foreground started");
+        } catch (Exception e) {
+            Log.e(TAG, "startService() crash: " + e.getMessage(), e);
+        }
     }
 
     private void stopService() {
-        if (!isActive) return;
-        cordova.getContext().stopService(new Intent(cordova.getActivity(), ForegroundService.class));
-        isActive = false;
+        Log.d(TAG, "stopService() called");
+        if (!isActive) {
+            Log.d(TAG, "stopService(): Not active");
+            return;
+        }
+        try {
+            cordova.getContext().stopService(new Intent(cordova.getActivity(), ForegroundService.class));
+            isActive = false;
+            Log.d(TAG, "stopService(): Success — foreground stopped");
+        } catch (Exception e) {
+            Log.e(TAG, "stopService() crash: " + e.getMessage(), e);
+        }
     }
 
+    // ————————————————————————————————————————
+    // EVENTS
+    // ————————————————————————————————————————
     private void fireEvent(String event) {
+        Log.d(TAG, "fireEvent: " + event);
         String js = JS_NAMESPACE + "._isActive=" + ("activate".equals(event) ? "true" : "false") +
                     "; " + JS_NAMESPACE + ".fireEvent('" + event + "');";
         webView.loadUrl("javascript:" + js);
