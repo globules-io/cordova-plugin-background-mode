@@ -13,7 +13,9 @@
         <engine name="cordova-android" version=">=11.0.0"/>
         <engine name="android-sdk" version=">=29"/>
     </engines>
-    
+
+    <preference name="ios-deploy-target" value="12.0"/>
+
     <platform name="android">
 
         <config-file target="AndroidManifest.xml" parent="/manifest">
